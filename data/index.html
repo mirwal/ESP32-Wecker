@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="de">
+
+<head>
+    <meta charset="UTF-8">
+    <title>ESP32 Wecker</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            text-align: center;
+            margin-top: 50px;
+        }
+
+        input {
+            margin: 10px;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>ESP32 Wecker</h1>
+    <p>Aktuelle Zeit: <span id="current-time">--:--:--</span></p>
+    <p>Weckzeit: <span id="alarm-time">--:--</span></p>
+
+    <form id="alarm-form">
+        <input type="time" id="time" required>
+        <label><input type="checkbox" id="active"> Aktiv</label><br>
+        <button type="submit">Weckzeit speichern</button>
+    </form>
+
+    <p id="status"></p>
+
+    <script>
+        async function loadStatus() {
+            const res = await fetch("/status");
+            const data = await res.json();
+            document.getElementById("current-time").innerText = data.time;
+            document.getElementById("alarm-time").innerText = data.alarm;
+            document.getElementById("active").checked = data.active;
+        }
+
+        document.getElementById("alarm-form").addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const time = document.getElementById("time").value;
+            const active = document.getElementById("active").checked;
+            const res = await fetch("/set", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ time, active })
+            });
+            const text = await res.text();
+            document.getElementById("status").innerText = text;
+            loadStatus();
+        });
+
+        setInterval(loadStatus, 5000);
+        loadStatus();
+    </script>
+</body>
+
+</html>
