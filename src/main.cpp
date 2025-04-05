@@ -74,7 +74,18 @@ String getFormattedTime()
 
 void showIP()
 {
-  display.setLine(3, "IP: " + WiFi.localIP().toString());
+
+  IPAddress ip;
+
+  if (WiFi.getMode() == WIFI_AP || WiFi.getMode() == WIFI_AP_STA)
+  {
+    ip = WiFi.softAPIP(); // Access Point IP
+  }
+  else
+  {
+    ip = WiFi.localIP(); // normale IP als Client im WLAN
+  }
+  display.setLine(3, "IP: " + ip.toString());
 }
 
 void showWeckzeit()
@@ -275,7 +286,19 @@ void setup()
   display.setLine(1, "WLAN verbunden");
 
   // IP anzeigen
-  display.setLine(2, "IP: " + WiFi.localIP().toString());
+
+  IPAddress ip;
+
+  if (WiFi.getMode() == WIFI_AP || WiFi.getMode() == WIFI_AP_STA)
+  {
+    ip = WiFi.softAPIP(); // Access Point IP
+  }
+  else
+  {
+    ip = WiFi.localIP(); // normale IP als Client im WLAN
+  }
+
+  display.setLine(2, "IP: " + ip.toString());
 
   // Zeit
   configTime(3600, 0, "pool.ntp.org", "time.nist.gov");
@@ -301,17 +324,11 @@ void loop()
 {
   wlanManager.handleWiFi();
   handleButton();
+  checkAlarm();
+
   if (millis() - lastTimeUpdate > 1000)
   {
     lastTimeUpdate = millis();
     updateDisplay();
-  }
-
-  if (wecker.shouldTriggerAlarm() && !alarmActive)
-  {
-    Serial.println("ALARM! Weckzeit erreicht!");
-    dfPlayer.volume(15);
-    dfPlayer.play(1); // Track 001.mp3
-    alarmActive = true;
   }
 }

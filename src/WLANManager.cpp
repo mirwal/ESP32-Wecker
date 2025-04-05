@@ -8,7 +8,7 @@ WLANManager::WLANManager(AsyncWebServer &server) : webServer(server) {}
 
 void WLANManager::begin()
 {
-    preferences.begin("wlan", false);
+    
     loadCredentials();
 
     if (ssid.length() > 0)
@@ -27,15 +27,17 @@ void WLANManager::begin()
         startAPMode();
     }
 
-    // setupWebPortal();
-    preferences.end();
 }
 void WLANManager::resetCredentials()
 {
+    WiFi.disconnect(true, true); // wichtig!
+    preferences.begin("wlan", false);
     preferences.clear();
     preferences.end();
+
     Serial.println("WLAN-Daten gelöscht! Neustart...");
     delay(1000);
+
     ESP.restart();
 }
 
@@ -72,29 +74,47 @@ bool WLANManager::isConnected()
 void WLANManager::startAPMode()
 {
     apMode = true;
-    WiFi.softAP(AP_SSID, AP_PASSWORD);
+    // AP-Modus starten
+    WiFi.softAP(AP_SSID, AP_PASSWORD); // aktiviert automatisch WIFI_AP-Modus
     Serial.println("Access Point gestartet: " + String(AP_SSID));
+
+    setupWebPortal();  // Routen setzen
+    webServer.begin(); // Server starten
 }
 
 void WLANManager::loadCredentials()
 {
+    preferences.begin("wlan", false);
     ssid = preferences.getString("ssid", "");
     password = preferences.getString("pass", "");
+    preferences.end();                 // <- Optional, aber sauber
 }
 
 void WLANManager::saveCredentials(const String &newSsid, const String &newPass)
 {
+    preferences.begin("wlan", false);  // <- Namespace öffnen
     preferences.putString("ssid", newSsid);
     preferences.putString("pass", newPass);
+    preferences.end();                 // <- Optional, aber sauber
 }
 
 void WLANManager::setupWebPortal()
 {
     webServer.on("/status", HTTP_GET, [&](AsyncWebServerRequest *request)
                  {
+                    String ip;
+                    if (WiFi.getMode() == WIFI_AP || WiFi.getMode() == WIFI_AP_STA)
+                    {
+                        ip = WiFi.softAPIP().toString();  // Access Point IP
+                    }
+                    else
+                    {
+                        ip = WiFi.localIP().toString();   // STA-Client-IP
+                    }
+
     String json = "{";
     json += "\"status\":\"" + String(isConnected() ? "Verbunden" : "AP-Modus") + "\",";
-    json += "\"ip\":\"" + WiFi.localIP().toString() + "\"";
+    json += "\"ip\":\"" + ip + "\"";
     json += "}";
     request->send(200, "application/json", json); });
 
