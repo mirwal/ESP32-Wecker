@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="de">
+
+<head>
+    <meta charset="UTF-8">
+    <title>WLAN Setup</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body {
+            font-family: sans-serif;
+            background: #f4f4f4;
+            padding: 20px;
+        }
+
+        .box {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            max-width: 400px;
+            margin: auto;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+
+        h2 {
+            text-align: center;
+        }
+
+        label {
+            display: block;
+            margin-top: 15px;
+        }
+
+        input {
+            width: 100%;
+            padding: 8px;
+            margin-top: 5px;
+        }
+
+        button {
+            margin-top: 20px;
+            width: 100%;
+            padding: 10px;
+            font-size: 16px;
+        }
+
+        #status {
+            margin-top: 20px;
+            text-align: center;
+            font-weight: bold;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="box">
+        <h2>🔧 WLAN Setup</h2>
+        <form id="wifiForm">
+            <label for="ssid">WLAN-Name (SSID):</label>
+            <input type="text" id="ssid" required>
+
+            <label for="pass">Passwort:</label>
+            <input type="password" id="pass" required>
+
+            <button type="submit">🔐 Speichern & Verbinden</button>
+        </form>
+
+        <p id="status">📶 Status wird abgerufen...</p>
+    </div>
+
+    <script>
+        const form = document.getElementById('wifiForm');
+        const statusText = document.getElementById('status');
+
+        // Formular absenden
+        form.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const ssid = document.getElementById('ssid').value;
+            const pass = document.getElementById('pass').value;
+
+            fetch('/save', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ssid: ssid, pass: pass })
+            })
+                .then(response => response.text())
+                .then(text => {
+                    statusText.innerText = "✅ " + text;
+                })
+                .catch(err => {
+                    statusText.innerText = "❌ Fehler beim Senden: " + err;
+                });
+        });
+
+        // WLAN-Status vom ESP abfragen
+        fetch('/status')
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === "connected") {
+                    statusText.innerText = `📶 Verbunden mit ${data.ssid} | IP: ${data.ip}`;
+                } else {
+                    statusText.innerText = "❌ Nicht verbunden.";
+                }
+            })
+            .catch(() => {
+                statusText.innerText = "⚠️ Status nicht abrufbar.";
+            });
+    </script>
+</body>
+
+</html>

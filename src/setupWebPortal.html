@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="de">
+
+<head>
+    <meta charset="UTF-8">
+    <title>WLAN Setup</title>
+</head>
+
+<body>
+    <h2>WLAN Setup</h2>
+    <form id="wifiForm">
+        SSID: <input type="text" id="ssid"><br><br>
+        Passwort: <input type="password" id="pass"><br><br>
+        <input type="submit" value="Speichern">
+    </form>
+    <p id="status"></p>
+    <script>
+        const form = document.getElementById('wifiForm');
+        const status = document.getElementById('status');
+
+        form.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const ssid = document.getElementById('ssid').value;
+            const pass = document.getElementById('pass').value;
+            fetch('/save', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ssid: ssid, pass: pass })
+            })
+                .then(response => response.text())
+                .then(data => {
+                    status.innerText = data;
+                });
+        });
+
+        // Status abrufen
+        fetch('/status')
+            .then(response => response.json())
+            .then(data => {
+                status.innerText = "📶 Status: " + data.status + " | IP: " + data.ip;
+            });
+    </script>
+</body>
+
+</html>

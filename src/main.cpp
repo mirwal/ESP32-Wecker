@@ -4,16 +4,18 @@
 #include <ESPAsyncWebServer.h>
 #include <LiquidCrystal_I2C.h>
 #include <DFRobotDFPlayerMini.h>
+#include <Preferences.h>
 #include <ArduinoJson.h>
 #include "TimeHelper.h"
 #include "DisplayHelper.h"
 #include "SPIFFS.h"
 #include "Wecker.h"
 #include "DaylightTime.h"
-#include <Preferences.h>
+#include "WLANManager.h"
 
 // ====== defines ======
 #define STOP_BUTTON 4
+#define RESET_PIN 4
 #define INFO_INTERVAL 5000   // 5 Sekunden Status-Anzeige durchwechseln
 #define RESET_HOLD_TIME 2000 // 2 Sekunden
 
@@ -25,11 +27,13 @@ DisplayHelper display(lcd);
 HardwareSerial mp3Serial(1);
 DFRobotDFPlayerMini dfPlayer;
 AsyncWebServer server(80);
+WLANManager wlanManager(server);
 Preferences prefs;
 
 // ====== WLAN ======
-const char *ssid = "mirwal";
-const char *password = "39942148480659775601";
+//
+// const char *ssid = "mirwal";
+// const char *password = "39942148480659775601";
 
 // ====== bools =====
 bool alarmActive = false;
@@ -189,15 +193,19 @@ void setup()
   }
 
   // WLAN
+
+  if (digitalRead(RESET_PIN) == LOW)
+  { // Taste gedrückt beim Start
+    display.setLine(1, "Setup-Taste erkannt");
+    display.show();
+    Serial.println("Setup-Taste erkannt → WLAN-Daten löschen...");
+    wlanManager.resetCredentials();
+  }
+
   display.setLine(1, "Verbinde WLAN...");
   display.show();
+  wlanManager.begin();
 
-  WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED)
-  {
-    delay(500);
-    Serial.print(".");
-  }
   Serial.println("\nWLAN verbunden");
   display.setLine(1, "WLAN verbunden");
 
@@ -226,6 +234,7 @@ void setup()
 
 void loop()
 {
+  wlanManager.handleWiFi();
 
   updateTimeString();
 
