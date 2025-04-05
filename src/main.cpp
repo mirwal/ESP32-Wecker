@@ -102,6 +102,55 @@ void showDate()
     display.setLine(3, String(buffer));
   }
 }
+
+void handleButton()
+{
+
+  if (alarmActive && digitalRead(STOP_BUTTON) == LOW)
+  {
+    Serial.println("Alarm gestoppt!");
+    dfPlayer.stop();
+    alarmActive = false;
+    delay(300); // Prellen vermeiden
+  }
+
+  // Reset-Funktion: Button 2 Sekunden gedrückt halten
+  if (digitalRead(STOP_BUTTON) == LOW)
+  {
+    if (buttonPressTime == 0)
+    {
+      buttonPressTime = millis();
+    }
+    else if (millis() - buttonPressTime > RESET_HOLD_TIME)
+    {
+      bool neuerStatus = !wecker.isActive();
+      wecker.setActive(neuerStatus);
+      wecker.saveToPreferences();
+      buttonPressTime = 0;
+
+      Serial.println(neuerStatus ? "Wecker aktiviert" : "Wecker deaktiviert");
+
+      display.setLine(3, (neuerStatus ? "Wecker aktiv      " : "Wecker deaktiviert"));
+      display.show();
+      delay(3000); // Anzeigezeit
+    }
+  }
+  else
+  {
+    buttonPressTime = 0; // Reset, wenn Taste losgelassen
+  }
+}
+void checkAlarm()
+{
+  if (wecker.shouldTriggerAlarm() && !alarmActive)
+  {
+    Serial.println("ALARM! Weckzeit erreicht!");
+    dfPlayer.volume(15);
+    dfPlayer.play(1); // Track 001.mp3
+    alarmActive = true;
+  }
+}
+
 void setupWebserver()
 {
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
@@ -145,30 +194,46 @@ void setupWebserver()
 
   server.begin();
 }
-void updateTimeString()
+String getTimeString()
 {
-  if (millis() - lastTimeUpdate > 1000)
+  struct tm timeinfo;
+  if (WiFi.status() == WL_CONNECTED && getCorrectedLocalTime(timeinfo))
   {
-    struct tm timeinfo;
-    if (WiFi.status() == WL_CONNECTED && getCorrectedLocalTime(timeinfo))
-    {
-      if (wecker.isActive())
-        strftime(TimeString, sizeof(TimeString), "%H:%M ARLAM %d.%m.%y", &timeinfo);
-      else
-        strftime(TimeString, sizeof(TimeString), "%H:%M       %d.%m.%y", &timeinfo);
-    }
-    lastTimeUpdate = millis();
-
-    display.setLine(0, TimeString);
-    int s, m;
-    wecker.getWeckzeit(s, m);
     char buffer[21];
-    snprintf(buffer, sizeof(buffer), "%02d:%02d", s, m);
-
-    display.setLine(1, buffer);
-    display.show();
+    if (wecker.isActive())
+      strftime(buffer, sizeof(buffer), "%H:%M ALARM %d.%m.%y", &timeinfo);
+    else
+      strftime(buffer, sizeof(buffer), "%H:%M       %d.%m.%y", &timeinfo);
+    return String(buffer);
   }
+  return "--:--        --.--.--";
 }
+
+String getWeckzeitString()
+{
+  int stunde, minute;
+  wecker.getWeckzeit(stunde, minute);
+  char buffer[6];
+  snprintf(buffer, sizeof(buffer), "%02d:%02d", stunde, minute);
+  return String(buffer);
+}
+void updateDisplay()
+{
+  display.setLine(0, getTimeString());
+  display.setLine(1, getWeckzeitString());
+
+  // Zyklische Anzeige auf Zeile 3 des LCDs:
+  // IP → Weckzeit → Alarmstatus → Datum
+  if (millis() - lastInfoChange > INFO_INTERVAL)
+  {
+    infoFunctions[currentInfoIndex](); // Funktionszeiger aus dem Array aufrufen → zeigt Info auf Zeile 3
+    currentInfoIndex = (currentInfoIndex + 1) % infoCount;
+    lastInfoChange = millis();
+  }
+
+  display.show();
+}
+
 void setup()
 {
   pinMode(STOP_BUTTON, INPUT_PULLUP);
@@ -235,14 +300,11 @@ void setup()
 void loop()
 {
   wlanManager.handleWiFi();
-
-  updateTimeString();
-
-  if (millis() - lastInfoChange > INFO_INTERVAL)
+  handleButton();
+  if (millis() - lastTimeUpdate > 1000)
   {
-    infoFunctions[currentInfoIndex]();
-    currentInfoIndex = (currentInfoIndex + 1) % infoCount;
-    lastInfoChange = millis();
+    lastTimeUpdate = millis();
+    updateDisplay();
   }
 
   if (wecker.shouldTriggerAlarm() && !alarmActive)
@@ -251,38 +313,5 @@ void loop()
     dfPlayer.volume(15);
     dfPlayer.play(1); // Track 001.mp3
     alarmActive = true;
-  }
-  if (alarmActive && digitalRead(STOP_BUTTON) == LOW)
-  {
-    Serial.println("Alarm gestoppt!");
-    dfPlayer.stop();
-    alarmActive = false;
-    delay(300); // Prellen vermeiden
-  }
-
-  // Reset-Funktion: Button 2 Sekunden gedrückt halten
-  if (digitalRead(STOP_BUTTON) == LOW)
-  {
-    if (buttonPressTime == 0)
-    {
-      buttonPressTime = millis();
-    }
-    else if (millis() - buttonPressTime > RESET_HOLD_TIME)
-    {
-      bool neuerStatus = !wecker.isActive();
-      wecker.setActive(neuerStatus);
-      wecker.saveToPreferences();
-      buttonPressTime = 0;
-
-      Serial.println(neuerStatus ? "Wecker aktiviert" : "Wecker deaktiviert");
-
-      display.setLine(3, (neuerStatus ? "Wecker aktiv      " : "Wecker deaktiviert"));
-      display.show();
-      delay(1000); // Anzeigezeit
-    }
-  }
-  else
-  {
-    buttonPressTime = 0; // Reset, wenn Taste losgelassen
   }
 }
