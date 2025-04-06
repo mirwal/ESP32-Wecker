@@ -15,12 +15,13 @@ public:
     void handleWiFi();
     bool isConnected();
     void resetCredentials();
+    String getMyIP();
 
 private:
     void startAPMode();
     void loadCredentials();
     void saveCredentials(const String &ssid, const String &pass);
-    void setupWebPortal();
+    void setupAPConfigPortal();
 
     AsyncWebServer &webServer;
     Preferences preferences;

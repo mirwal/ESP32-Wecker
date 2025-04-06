@@ -79,3 +79,20 @@ bool Wecker::shouldTriggerAlarm()
     }
     return false;
 }
+
+uint8_t Wecker::getSavedSound()
+{
+    Preferences prefs;
+    prefs.begin("alarm", true);
+    uint8_t sound = prefs.getUInt("sound", 1);
+    prefs.end();
+    return sound;
+}
+
+void Wecker::setSavedSound(uint8_t sound)
+{ 
+    Preferences prefs;
+    prefs.begin("alarm", false);
+    prefs.putUInt("sound", sound);
+    prefs.end();
+}

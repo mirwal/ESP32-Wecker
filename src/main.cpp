@@ -29,7 +29,6 @@ DFRobotDFPlayerMini dfPlayer;
 AsyncWebServer server(80);
 WLANManager wlanManager(server);
 Preferences prefs;
-
 // ====== WLAN ======
 //
 // const char *ssid = "mirwal";
@@ -45,16 +44,24 @@ unsigned long buttonPressTime = 0;
 char TimeString[21];
 unsigned long lastTimeUpdate = 0;
 
+const char *soundNames[] = {
+    "Unbekannt",        // Index 0 – wird nie genutzt
+    "Klassisch",        // Index 1
+    "Vogelgezwitscher", // Index 2
+    "Retro-Klingel",    // Index 3
+    "Sirene"            // Index 4
+};
+
 // ====== Prototypen ====
 void showIP();
 void showWeckzeit();
 void showAlarmStatus();
-void showDate();
+void showSound();
 void updateDisplay();
 
 // ====== typedef =========
 typedef void (*InfoFunc)();
-InfoFunc infoFunctions[] = {showIP, showWeckzeit, showAlarmStatus, showDate};
+InfoFunc infoFunctions[] = {showIP, showWeckzeit, showAlarmStatus, showSound};
 const int infoCount = sizeof(infoFunctions) / sizeof(infoFunctions[0]);
 
 // ====== Helfer ======
@@ -75,18 +82,7 @@ String getFormattedTime()
 
 void showIP()
 {
-
-  IPAddress ip;
-
-  if (WiFi.getMode() == WIFI_AP || WiFi.getMode() == WIFI_AP_STA)
-  {
-    ip = WiFi.softAPIP(); // Access Point IP
-  }
-  else
-  {
-    ip = WiFi.localIP(); // normale IP als Client im WLAN
-  }
-  display.setLine(3, "IP: " + ip.toString());
+  display.setLine(3, "IP: " + wlanManager.getMyIP());
 }
 
 void showWeckzeit()
@@ -102,17 +98,10 @@ void showAlarmStatus()
   display.setLine(3, "Alarm: " + String(wecker.isActive() ? "An " : "Aus") + "        ");
 }
 
-void showDate()
+void showSound()
 {
-
-  struct tm timeinfo;
-  if (getCorrectedLocalTime(timeinfo))
-  {
-    char buffer[11];
-    strftime(buffer, sizeof(buffer), "%d.%m.%Y", &timeinfo);
-    String Datum = "Datum:" + String(buffer);
-    display.setLine(3, String(buffer));
-  }
+  String soundInfo = String("Sound: ") + soundNames[wecker.getSavedSound()];
+  display.setLine(3, soundInfo);
 }
 
 void handleButton()
@@ -159,12 +148,13 @@ void checkAlarm()
   {
     Serial.println("ALARM! Weckzeit erreicht!");
     dfPlayer.volume(15);
-    dfPlayer.play(1); // Track 001.mp3
+    dfPlayer.play(wecker.getSavedSound());
+    // dfPlayer.play(1); // Track 001.mp3
     alarmActive = true;
   }
 }
 
-void setupWebserver()
+void setupMainWebinterface()
 {
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
             { request->send(SPIFFS, "/index.html", "text/html"); });
@@ -180,6 +170,7 @@ void setupWebserver()
     snprintf(weckzeit, sizeof(weckzeit), "%02d:%02d", stunde, minute);
     doc["alarm"] = weckzeit;
     doc["active"] = wecker.isActive();
+    doc["sound"] = wecker.getSavedSound();
 
     String json;
     serializeJson(doc, json);
@@ -205,8 +196,54 @@ void setupWebserver()
       request->send(400, "text/plain", "JSON Fehler");
     } });
 
+  server.on("/setSound", HTTP_POST, [](AsyncWebServerRequest *request) {}, NULL, [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t, size_t)
+            {
+    String body;
+    for (size_t i = 0; i < len; i++) body += (char)data[i];
+
+    DynamicJsonDocument doc(128);
+    DeserializationError error = deserializeJson(doc, body);
+
+    if (!error && doc.containsKey("sound"))
+    {
+        uint8_t sound = doc["sound"];
+        if (sound >= 1 && sound <= 4)
+        {
+          wecker.setSavedSound(sound);
+
+            request->send(200, "text/plain", "🎵 Sound gespeichert: " + String(sound));
+        }
+        else
+        {
+            request->send(400, "text/plain", "❌ Ungültiger Sound-Wert");
+        }
+    }
+    else
+    {
+        request->send(400, "text/plain", "❌ JSON-Fehler");
+    } });
+  server.on("/play", HTTP_GET, [](AsyncWebServerRequest *request)
+            {
+        if (request->hasParam("sound"))
+        {
+            int sound = request->getParam("sound")->value().toInt();
+            if (sound >= 1 && sound <= 4)
+            {
+                dfPlayer.play(sound);  // spielt z. B. 002.mp3
+                request->send(200, "text/plain", "🎵 Sound wird abgespielt");
+            }
+            else
+            {
+                request->send(400, "text/plain", "❌ Ungültiger Sound-Wert");
+            }
+        }
+        else
+        {
+            request->send(400, "text/plain", "❌ Kein Sound angegeben");
+        } });
   server.begin();
 }
+
 String getTimeString()
 {
   struct tm timeinfo;
@@ -261,6 +298,7 @@ void setup()
   updateDisplay(); // display.show();
 
   // SPIFFS
+  // pio run --target uploadfs
   if (!SPIFFS.begin())
   {
     Serial.println("SPIFFS konnte nicht gestartet werden");
@@ -301,18 +339,7 @@ void setup()
 
   // IP anzeigen
 
-  IPAddress ip;
-
-  if (WiFi.getMode() == WIFI_AP || WiFi.getMode() == WIFI_AP_STA)
-  {
-    ip = WiFi.softAPIP(); // Access Point IP
-  }
-  else
-  {
-    ip = WiFi.localIP(); // normale IP als Client im WLAN
-  }
-
-  display.setLine(2, "IP: " + ip.toString());
+  display.setLine(2, "IP: " + wlanManager.getMyIP());
 
   // Zeit
   configTime(3600, 0, "pool.ntp.org", "time.nist.gov");
@@ -330,8 +357,9 @@ void setup()
     display.setLine(3, "MP3 Fehler");
   }
 
+  updateDisplay(); // display.show();
   // Webserver erst NACH WLAN-Start!
-  setupWebserver();
+  setupMainWebinterface();
 }
 
 void loop()

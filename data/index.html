@@ -14,11 +14,17 @@
         input {
             margin: 10px;
         }
+
+        #soundLabel {
+            transition: opacity 0.5s ease;
+            opacity: 0;
+            color: green;
+        }
     </style>
 </head>
 
 <body>
-    <h1>ESP32 Wecker</h1>
+    <h1>ESP32 Wecker mirwal</h1>
     <p>Aktuelle Zeit: <span id="current-time">--:--:--</span></p>
     <p>Weckzeit: <span id="alarm-time">--:--</span></p>
 
@@ -27,10 +33,30 @@
         <label><input type="checkbox" id="active"> Aktiv</label><br>
         <button type="submit">Weckzeit speichern</button>
     </form>
-
+    <form id="sound-form">
+        <h3>Weck-Sound auswählen:</h3>
+        <p id="sound-label"></p>
+        <select id="sound">
+            <option value="1">Klassisch</option>
+            <option value="2">Vogelgezwitscher</option>
+            <option value="3">Retro-Klingel</option>
+            <option value="4">Sirene</option>
+        </select>
+        <input type="submit" value="Speichern">
+        <button type="button" id="play-sound">🔊 Testen</button>
+    </form>
     <p id="status"></p>
 
     <script>
+        async function initPage() {
+            const res = await fetch("/status");
+            const data = await res.json();
+            document.getElementById("sound").value = data.sound;
+            document.getElementById("current-time").innerText = data.time;
+            document.getElementById("alarm-time").innerText = data.alarm;
+            document.getElementById("active").checked = data.active;
+        }
+
         async function loadStatus() {
             const res = await fetch("/status");
             const data = await res.json();
@@ -38,6 +64,43 @@
             document.getElementById("alarm-time").innerText = data.alarm;
             document.getElementById("active").checked = data.active;
         }
+
+        document.getElementById("sound-form").addEventListener("submit", async (e) => {
+            e.preventDefault();
+
+            const selectedSound = document.getElementById("sound").value;
+            const soundName = document.querySelector(`#sound option[value="${selectedSound}"]`)?.textContent;
+
+            const response = await fetch("/setSound", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ sound: selectedSound })
+            });
+
+            const msg = await response.text();
+
+            // Rückmeldung anzeigen
+            const soundLabel = document.getElementById("sound-label");
+            soundLabel.innerText = "🎵 Aktuell: " + soundName;
+
+            const label = document.getElementById("soundLabel");
+            label.innerText = msg;
+            label.style.opacity = 1;
+
+            setTimeout(() => {
+                label.style.opacity = 0;
+            }, 3000);
+        });
+
+
+
+        document.getElementById("play-sound").addEventListener("click", async () => {
+            const selectedSound = document.getElementById("sound").value;
+
+            const response = await fetch(`/play?sound=${selectedSound}`);
+            const msg = await response.text();
+            document.getElementById("soundLabel").innerText = msg;
+        });
 
         document.getElementById("alarm-form").addEventListener("submit", async (e) => {
             e.preventDefault();
@@ -53,7 +116,8 @@
             loadStatus();
         });
 
-        setInterval(loadStatus, 5000);
+        initPage(); // 🔄 einmalig beim Laden
+        setInterval(loadStatus, 5000); // 🔄 nur Zeit, Weckzeit, Aktiv-Status
         loadStatus();
     </script>
 </body>
