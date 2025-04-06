@@ -50,6 +50,7 @@ void showIP();
 void showWeckzeit();
 void showAlarmStatus();
 void showDate();
+void updateDisplay();
 
 // ====== typedef =========
 typedef void (*InfoFunc)();
@@ -123,6 +124,7 @@ void handleButton()
     dfPlayer.stop();
     alarmActive = false;
     delay(300); // Prellen vermeiden
+    updateDisplay();
   }
 
   // Reset-Funktion: Button 2 Sekunden gedrückt halten
@@ -138,11 +140,11 @@ void handleButton()
       wecker.setActive(neuerStatus);
       wecker.saveToPreferences();
       buttonPressTime = 0;
-
       Serial.println(neuerStatus ? "Wecker aktiviert" : "Wecker deaktiviert");
 
       display.setLine(3, (neuerStatus ? "Wecker aktiv      " : "Wecker deaktiviert"));
-      display.show();
+
+      updateDisplay();
       delay(3000); // Anzeigezeit
     }
   }
@@ -256,14 +258,14 @@ void setup()
   // LCD
   display.begin();
   display.setLine(0, "Wecker startet...");
-  display.show();
+  updateDisplay(); // display.show();
 
   // SPIFFS
   if (!SPIFFS.begin())
   {
     Serial.println("SPIFFS konnte nicht gestartet werden");
     display.setLine(3, "SPIFFS Fehler");
-    display.show();
+    updateDisplay(); // display.show();
 
     return;
   }
@@ -273,13 +275,25 @@ void setup()
   if (digitalRead(RESET_PIN) == LOW)
   { // Taste gedrückt beim Start
     display.setLine(1, "Setup-Taste erkannt");
-    display.show();
+    updateDisplay(); // display.show();
     Serial.println("Setup-Taste erkannt → WLAN-Daten löschen...");
     wlanManager.resetCredentials();
+    Serial.print("WLAN-Daten gelöscht! ");
+
+    // Warte, bis Taste losgelassen wurde
+    while (digitalRead(RESET_PIN) == LOW)
+    {
+      delay(200); // entprellter Poll
+    }
+    Serial.println("Neustart...");
+
+    delay(1000);
+
+    ESP.restart();
   }
 
   display.setLine(1, "Verbinde WLAN...");
-  display.show();
+  updateDisplay(); // display.show();
   wlanManager.begin();
 
   Serial.println("\nWLAN verbunden");
@@ -326,7 +340,7 @@ void loop()
   handleButton();
   checkAlarm();
 
-  if (millis() - lastTimeUpdate > 1000)
+  if (millis() - lastTimeUpdate > 5000)
   {
     lastTimeUpdate = millis();
     updateDisplay();

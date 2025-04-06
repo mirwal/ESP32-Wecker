@@ -8,7 +8,7 @@ WLANManager::WLANManager(AsyncWebServer &server) : webServer(server) {}
 
 void WLANManager::begin()
 {
-    
+
     loadCredentials();
 
     if (ssid.length() > 0)
@@ -26,7 +26,6 @@ void WLANManager::begin()
     {
         startAPMode();
     }
-
 }
 void WLANManager::resetCredentials()
 {
@@ -34,11 +33,6 @@ void WLANManager::resetCredentials()
     preferences.begin("wlan", false);
     preferences.clear();
     preferences.end();
-
-    Serial.println("WLAN-Daten gelöscht! Neustart...");
-    delay(1000);
-
-    ESP.restart();
 }
 
 void WLANManager::handleWiFi()
@@ -75,9 +69,11 @@ void WLANManager::startAPMode()
 {
     apMode = true;
     // AP-Modus starten
+
+    WiFi.mode(WIFI_AP);
     WiFi.softAP(AP_SSID, AP_PASSWORD); // aktiviert automatisch WIFI_AP-Modus
     Serial.println("Access Point gestartet: " + String(AP_SSID));
-
+    delay(100);
     setupWebPortal();  // Routen setzen
     webServer.begin(); // Server starten
 }
@@ -87,15 +83,15 @@ void WLANManager::loadCredentials()
     preferences.begin("wlan", false);
     ssid = preferences.getString("ssid", "");
     password = preferences.getString("pass", "");
-    preferences.end();                 // <- Optional, aber sauber
+    preferences.end(); // <- Optional, aber sauber
 }
 
 void WLANManager::saveCredentials(const String &newSsid, const String &newPass)
 {
-    preferences.begin("wlan", false);  // <- Namespace öffnen
+    preferences.begin("wlan", false); // <- Namespace öffnen
     preferences.putString("ssid", newSsid);
     preferences.putString("pass", newPass);
-    preferences.end();                 // <- Optional, aber sauber
+    preferences.end(); // <- Optional, aber sauber
 }
 
 void WLANManager::setupWebPortal()
