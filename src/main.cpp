@@ -6,6 +6,8 @@
 #include <DFRobotDFPlayerMini.h>
 #include <Preferences.h>
 #include <ArduinoJson.h>
+#include <WiFiClientSecure.h>
+#include <HTTPClient.h>
 #include "TimeHelper.h"
 #include "DisplayHelper.h"
 #include "SPIFFS.h"
@@ -16,19 +18,21 @@
 // ====== defines ======
 #define STOP_BUTTON 4
 #define RESET_PIN 4
-#define INFO_INTERVAL 5000   // 5 Sekunden Status-Anzeige durchwechseln
-#define RESET_HOLD_TIME 2000 // 2 Sekunden
+#define MUTE_PIN 25                    // audiomodul mute
+#define INFO_INTERVAL 30000            // 5 Sekunden Status-Anzeige durchwechseln
+#define WETTER_UPDATE_INTERVAL 3600000 // 1 Stunde = 3.600.000 ms
+#define RESET_HOLD_TIME 2000           // 2 Sekunden
 
 // ====== Objekte ======
 Wecker wecker;
 DaylightTime dst;
-LiquidCrystal_I2C lcd(0x27, 20, 4);
-DisplayHelper display(lcd);
+DisplayHelper display;
 HardwareSerial mp3Serial(1);
 DFRobotDFPlayerMini dfPlayer;
 AsyncWebServer server(80);
 WLANManager wlanManager(server);
 Preferences prefs;
+
 // ====== WLAN ======
 //
 // const char *ssid = "mirwal";
@@ -38,12 +42,15 @@ Preferences prefs;
 bool alarmActive = false;
 
 // ====== variablen ===
+
+unsigned long lastWetterUpdate = 0;
 unsigned long lastInfoChange = 0;
-int currentInfoIndex = 0;
 unsigned long buttonPressTime = 0;
-char TimeString[21];
 unsigned long lastTimeUpdate = 0;
 
+int currentInfoIndex = 0;
+String wetterText = "unbekannt";
+String infoGB = "Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor ENDE ENDE";
 const char *soundNames[] = {
     "Unbekannt",        // Index 0 – wird nie genutzt
     "Klassisch",        // Index 1
@@ -58,10 +65,11 @@ void showWeckzeit();
 void showAlarmStatus();
 void showSound();
 void updateDisplay();
+void showWetter();
 
 // ====== typedef =========
 typedef void (*InfoFunc)();
-InfoFunc infoFunctions[] = {showIP, showWeckzeit, showAlarmStatus, showSound};
+InfoFunc infoFunctions[] = {showIP, showWetter, showWeckzeit, showAlarmStatus, showSound};
 const int infoCount = sizeof(infoFunctions) / sizeof(infoFunctions[0]);
 
 // ====== Helfer ======
@@ -100,7 +108,7 @@ void showAlarmStatus()
 
 void showSound()
 {
-  String soundInfo = String("Sound: ") + soundNames[wecker.getSavedSound()];
+  String soundInfo = soundNames[wecker.getSavedSound()];
   display.setLine(3, soundInfo);
 }
 
@@ -147,7 +155,9 @@ void checkAlarm()
   if (wecker.shouldTriggerAlarm() && !alarmActive)
   {
     Serial.println("ALARM! Weckzeit erreicht!");
-    dfPlayer.volume(15);
+
+    dfPlayer.volume(wecker.getSavedVolume());
+    // dfPlayer.volume(15);
     dfPlayer.play(wecker.getSavedSound());
     // dfPlayer.play(1); // Track 001.mp3
     alarmActive = true;
@@ -171,6 +181,7 @@ void setupMainWebinterface()
     doc["alarm"] = weckzeit;
     doc["active"] = wecker.isActive();
     doc["sound"] = wecker.getSavedSound();
+    doc["volume"] = wecker.getSavedVolume();
 
     String json;
     serializeJson(doc, json);
@@ -207,7 +218,7 @@ void setupMainWebinterface()
     if (!error && doc.containsKey("sound"))
     {
         uint8_t sound = doc["sound"];
-        if (sound >= 1 && sound <= 4)
+        if (sound >= 1 && sound <= 31)
         {
           wecker.setSavedSound(sound);
 
@@ -222,13 +233,48 @@ void setupMainWebinterface()
     {
         request->send(400, "text/plain", "❌ JSON-Fehler");
     } });
+
+  server.on("/setVolume", HTTP_POST, [](AsyncWebServerRequest *request) {}, NULL, [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t, size_t)
+            {
+              String body;
+              for (size_t i = 0; i < len; i++) body += (char)data[i];
+
+              DynamicJsonDocument doc(128);
+              DeserializationError error = deserializeJson(doc, body);
+
+              if (!error && doc.containsKey("volume"))
+              {
+              uint8_t volume = doc["volume"];
+              if (volume >= 1 && volume <= 25)
+              {
+                wecker.setSavedVolume(volume);
+
+                  request->send(200, "text/plain", "🔊 Volume gespeichert: " + String(volume));
+              }
+              else
+              {
+                  request->send(400, "text/plain", "❌ Ungültiger Volume-Wert");
+              }
+              }
+              else
+              {
+              request->send(400, "text/plain", "❌ JSON-Fehler");
+              } });
+
+  server.on("/stop", HTTP_GET, [](AsyncWebServerRequest *request)
+            {
+                dfPlayer.stop();
+                request->send(200, "text/plain", "🎵 Sound gestoppt"); });
+
   server.on("/play", HTTP_GET, [](AsyncWebServerRequest *request)
             {
         if (request->hasParam("sound"))
         {
             int sound = request->getParam("sound")->value().toInt();
-            if (sound >= 1 && sound <= 4)
+            if (sound >= 1 && sound <= 31)
             {
+              dfPlayer.volume(wecker.getSavedVolume());
+              Serial.printf("🎵 Play Sound %d mit Volume %d\n", sound, wecker.getSavedVolume());
                 dfPlayer.play(sound);  // spielt z. B. 002.mp3
                 request->send(200, "text/plain", "🎵 Sound wird abgespielt");
             }
@@ -241,22 +287,8 @@ void setupMainWebinterface()
         {
             request->send(400, "text/plain", "❌ Kein Sound angegeben");
         } });
-  server.begin();
-}
 
-String getTimeString()
-{
-  struct tm timeinfo;
-  if (WiFi.status() == WL_CONNECTED && getCorrectedLocalTime(timeinfo))
-  {
-    char buffer[21];
-    if (wecker.isActive())
-      strftime(buffer, sizeof(buffer), "%H:%M ALARM %d.%m.%y", &timeinfo);
-    else
-      strftime(buffer, sizeof(buffer), "%H:%M       %d.%m.%y", &timeinfo);
-    return String(buffer);
-  }
-  return "--:--        --.--.--";
+  server.begin();
 }
 
 String getWeckzeitString()
@@ -267,13 +299,33 @@ String getWeckzeitString()
   snprintf(buffer, sizeof(buffer), "%02d:%02d", stunde, minute);
   return String(buffer);
 }
+String getTimeString()
+{
+  struct tm timeinfo;
+  if (WiFi.status() == WL_CONNECTED && getCorrectedLocalTime(timeinfo))
+  {
+    char buffer[21];
+    char zeitStr[6];  // "HH:MM" + \0
+    char datumStr[9]; // "DD.MM.YY" + \0
+
+    strftime(zeitStr, sizeof(zeitStr), "%H:%M", &timeinfo);
+    strftime(datumStr, sizeof(datumStr), "%d.%m.%y", &timeinfo);
+
+    String statusStr = wecker.isActive() ? getWeckzeitString() : " OFF ";
+    snprintf(buffer, sizeof(buffer), "%s %s %s",
+             zeitStr, statusStr.c_str(), datumStr);
+
+    return String(buffer);
+  }
+  return "--:--        --.--.--";
+}
+
 void updateDisplay()
 {
   display.setLine(0, getTimeString());
-  display.setLine(1, getWeckzeitString());
-
+  display.setScrollingLineWords(1, wetterText, 5000);
   // Zyklische Anzeige auf Zeile 3 des LCDs:
-  // IP → Weckzeit → Alarmstatus → Datum
+  // IP → Weckzeit → Alarmstatus → Datum ...
   if (millis() - lastInfoChange > INFO_INTERVAL)
   {
     infoFunctions[currentInfoIndex](); // Funktionszeiger aus dem Array aufrufen → zeigt Info auf Zeile 3
@@ -283,10 +335,122 @@ void updateDisplay()
 
   display.show();
 }
+String getLetzterEintrag()
+{
+  WiFiClientSecure client;
+  client.setInsecure(); // das ist hier gültig!
+  HTTPClient http;
+  http.begin("https://mirwal.de/api/letzter_eintrag.php");
+  int httpCode = http.GET();
 
+  if (httpCode == 200)
+  {
+    int length = http.getSize();
+    if (length < 800)
+    {
+      infoGB = http.getString();
+
+      // Ersetze verschiedene Arten von Zeilenumbrüchen
+      infoGB.replace("\r\n", "  ");
+      infoGB.replace("\n", "    ");
+      infoGB.replace("\r", " ");
+
+      if (infoGB.length() > 400)
+      {
+        infoGB = infoGB.substring(0, 397) + "...   * * *   ";
+      }
+      else
+      {
+        infoGB += "   * * *   ";
+      }
+
+      http.end();
+      return infoGB;
+    }
+  }
+  else
+  {
+    http.end();
+    return "Fehler HTTP" + String(httpCode);
+  }
+  http.end();
+  return "length < 200";
+}
+
+void showWetter()
+{
+  Serial.print("Wetter: ");
+  Serial.println(wetterText);
+  display.setScrollingLine(3, wetterText);
+}
+
+void updateWetter(String &wetterText)
+{
+  HTTPClient http;
+  http.begin("http://mirwal.de/api/wetter.php");
+  int httpCode = http.GET();
+
+  if (httpCode == 200)
+  {
+    WiFiClient *stream = http.getStreamPtr();
+    char buffer[122];
+    int len = 0;
+
+    while (http.connected() && stream->available() && len < 120)
+    {
+      char c = stream->read();
+      buffer[len++] = c;
+    }
+    buffer[len] = '\0';
+
+    // Zeilenumbrüche escapen
+    //  wetterText = String(buffer);
+
+    // API Müll entfernen am amfang und am ende
+    String raw = String(buffer);
+    int start = raw.indexOf('\n') + 1;
+    int end = raw.indexOf('\n', start);
+
+    wetterText = raw.substring(start, end);
+
+    wetterText.replace("\r\n", " ");
+    wetterText.replace("\n", " ");
+    wetterText.replace("\r", " ");
+
+    wetterText.replace("🌩️", " "); // Gewitter
+    wetterText.replace("🌦️", " "); // Sprühregen
+    wetterText.replace("🌧️", " "); // Regen
+    wetterText.replace("❄️", " ");  // Schnee
+    wetterText.replace("🌫️", " "); // Nebel
+    wetterText.replace("☀️", " ");  // Klar
+    wetterText.replace("🌤️", " "); // leicht bewölkt
+    wetterText.replace("☁️", " ");  // bewölkt
+    wetterText.replace("🌈", " "); // Fallback
+    wetterText.replace("°", "\x04");
+    // 1. Umlaute vorher auf Custom-LCD-Zeichen mappen
+    wetterText.replace("ä", "\x00"); // LCD.write(0) = ä
+    wetterText.replace("ö", "\x01"); // LCD.write(1) = ö
+    wetterText.replace("ü", "\x02"); // LCD.write(2) = ü
+    wetterText.replace("ß", "\x03"); // LCD.write(3) = ß
+  }
+  for (int i = 0; i < wetterText.length(); i++)
+  {
+    if ((uint8_t)wetterText[i] > 127 && wetterText[i] < 0xF0)
+    {
+      wetterText.remove(i, 1);
+      i--; // da Zeichen verschoben wurde
+    }
+  }
+  lastWetterUpdate = millis();
+
+  http.end();
+}
 void setup()
 {
+  pinMode(MUTE_PIN, OUTPUT);
+  digitalWrite(MUTE_PIN, HIGH);
   pinMode(STOP_BUTTON, INPUT_PULLUP);
+
   Serial.begin(115200);
   delay(500);
   Serial.println("Starte Wecker...");
@@ -294,8 +458,9 @@ void setup()
 
   // LCD
   display.begin();
-  display.setLine(0, "Wecker startet...");
-  updateDisplay(); // display.show();
+  display.setLine(3, " baud: 115200 ");
+  display.show();
+  delay(8000);
 
   // SPIFFS
   // pio run --target uploadfs
@@ -303,7 +468,7 @@ void setup()
   {
     Serial.println("SPIFFS konnte nicht gestartet werden");
     display.setLine(3, "SPIFFS Fehler");
-    updateDisplay(); // display.show();
+    display.show();
 
     return;
   }
@@ -313,7 +478,7 @@ void setup()
   if (digitalRead(RESET_PIN) == LOW)
   { // Taste gedrückt beim Start
     display.setLine(1, "Setup-Taste erkannt");
-    updateDisplay(); // display.show();
+    display.show();
     Serial.println("Setup-Taste erkannt → WLAN-Daten löschen...");
     wlanManager.resetCredentials();
     Serial.print("WLAN-Daten gelöscht! ");
@@ -331,7 +496,7 @@ void setup()
   }
 
   display.setLine(1, "Verbinde WLAN...");
-  updateDisplay(); // display.show();
+  display.show();
   wlanManager.begin();
 
   Serial.println("\nWLAN verbunden");
@@ -350,6 +515,8 @@ void setup()
   {
     Serial.println("\nDFPlayer verbunden");
     display.setLine(3, "MP3 bereit");
+    dfPlayer.play(31);
+    digitalWrite(MUTE_PIN, LOW);
   }
   else
   {
@@ -357,9 +524,13 @@ void setup()
     display.setLine(3, "MP3 Fehler");
   }
 
-  updateDisplay(); // display.show();
+  display.show();
   // Webserver erst NACH WLAN-Start!
   setupMainWebinterface();
+  delay(5000);
+  display.setScrollingLine(2, getLetzterEintrag());
+  updateWetter(wetterText);
+  dfPlayer.stop();
 }
 
 void loop()
@@ -368,9 +539,16 @@ void loop()
   handleButton();
   checkAlarm();
 
-  if (millis() - lastTimeUpdate > 5000)
+  delay(200);
+
+  if (millis() - lastTimeUpdate > INFO_INTERVAL)
   {
     lastTimeUpdate = millis();
     updateDisplay();
   }
+  if (millis() - lastWetterUpdate > WETTER_UPDATE_INTERVAL)
+  {
+    updateWetter(wetterText);
+  }
+  display.show();
 }

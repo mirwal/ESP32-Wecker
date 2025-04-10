@@ -15,7 +15,7 @@
             margin: 10px;
         }
 
-        #soundLabel {
+        #sound-label {
             transition: opacity 0.5s ease;
             opacity: 0;
             color: green;
@@ -35,23 +35,63 @@
     </form>
     <form id="sound-form">
         <h3>Weck-Sound auswählen:</h3>
+        <div><select id="sound">
+                <option value="1">Klassisch</option>
+                <option value="2">Vogelgezwitscher</option>
+                <option value="3">mellasu - my fantasy world.mp3</option>
+                <option value="4">mirwal - 03_5.mp3</option>
+                <option value="5">mirwal - finale.mp3</option>
+                <option value="6">mirwal - Probezeit_01.mp3</option>
+                <option value="7">mirwal - untitled.mp3</option>
+                <option value="8">mirwal - Spinner4.mp3</option>
+                <option value="9">mirwal - 2321.mp3</option>
+                <option value="10">mirwal - begin_01.mp3</option>
+                <option value="11">mirwal - Bits.mp3</option>
+                <option value="12">mirwal - Bits_Choir.mp3</option>
+                <option value="13">mirwal - BL_140.mp3</option>
+                <option value="14">mirwal - De_Malibu_001.mp3</option>
+                <option value="15">mirwal - Delay_Dest_002.mp3</option>
+                <option value="16">mirwal - Experimente_013.mp3</option>
+                <option value="17">mirwal - Gameover.mp3</option>
+                <option value="18">mirwal - H2_.mp3</option>
+                <option value="19">mirwal - Hard_Soft.mp3</option>
+                <option value="20">mirwal - HS1.mp3</option>
+                <option value="21">mirwal - Jogginghouse_002.mp3</option>
+                <option value="22">mirwal - kleiner Pilz_001.mp3</option>
+                <option value="23">mirwal - LL.mp3</option>
+                <option value="24">mirwal - Love.mp3</option>
+                <option value="25">mirwal - m_Osc_2.mp3</option>
+                <option value="26">mirwal - Ma_Tech.mp3</option>
+                <option value="27">mirwal - Mad.mp3</option>
+                <option value="28">mirwal - Meerfach4.mp3</option>
+                <option value="29">mirwal - meine_muse_001.mp3</option>
+                <option value="30">mirwal - Mi_008_Mirwal.mp3</option>
+                <option value="31">mirwal - Waldgang.mp3</option>
+
+
+
+            </select>
+
+        </div>
+
+        <input type="range" id="volume" name="volume" min="1" max="25" />
+        <label for="volume" id="volume-label"></label><br>
+        <input type="submit" value="Speichern"><br>
         <p id="sound-label"></p>
-        <select id="sound">
-            <option value="1">Klassisch</option>
-            <option value="2">Vogelgezwitscher</option>
-            <option value="3">Retro-Klingel</option>
-            <option value="4">Sirene</option>
-        </select>
-        <input type="submit" value="Speichern">
-        <button type="button" id="play-sound">🔊 Testen</button>
+        <button type="button" id="toggle-sound">🔊 Testen</button><br>
     </form>
     <p id="status"></p>
 
     <script>
+        let isPlaying = false;
+
         async function initPage() {
             const res = await fetch("/status");
             const data = await res.json();
             document.getElementById("sound").value = data.sound;
+            document.getElementById("sound-label").innerText = data.sound;
+            document.getElementById("volume").value = data.volume;
+            document.getElementById("volume-label").innerText = data.volume;
             document.getElementById("current-time").innerText = data.time;
             document.getElementById("alarm-time").innerText = data.alarm;
             document.getElementById("active").checked = data.active;
@@ -70,20 +110,28 @@
 
             const selectedSound = document.getElementById("sound").value;
             const soundName = document.querySelector(`#sound option[value="${selectedSound}"]`)?.textContent;
-
-            const response = await fetch("/setSound", {
+            const volume = document.getElementById("volume").value;
+            // 1. Sound speichern
+            const responseSound = await fetch("/setSound", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ sound: selectedSound })
             });
+            const msg = await responseSound.text(); // 🔄 vor Volume-Fetch
+            // 2. Volume speichern
 
-            const msg = await response.text();
+            await fetch("/setVolume", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ volume })
+            });
+
 
             // Rückmeldung anzeigen
             const soundLabel = document.getElementById("sound-label");
             soundLabel.innerText = "🎵 Aktuell: " + soundName;
 
-            const label = document.getElementById("soundLabel");
+            const label = document.getElementById("sound-label");
             label.innerText = msg;
             label.style.opacity = 1;
 
@@ -91,15 +139,31 @@
                 label.style.opacity = 0;
             }, 3000);
         });
+        document.getElementById("volume").addEventListener("input", (e) => {
+            document.getElementById("volume-label").innerText = e.target.value;
+        });
 
 
 
-        document.getElementById("play-sound").addEventListener("click", async () => {
+
+        document.getElementById("toggle-sound").addEventListener("click", async () => {
+            const button = document.getElementById("toggle-sound");
             const selectedSound = document.getElementById("sound").value;
 
-            const response = await fetch(`/play?sound=${selectedSound}`);
-            const msg = await response.text();
-            document.getElementById("soundLabel").innerText = msg;
+            if (!isPlaying) {
+                const response = await fetch(`/play?sound=${selectedSound}`);
+                const msg = await response.text();
+                document.getElementById("sound-label").innerText = msg;
+
+                button.innerText = "⏹️ Stoppen";
+                isPlaying = true;
+            } else {
+                const response = await fetch(`/stop`);
+                const msg = await response.text();
+                document.getElementById("sound-label").innerText = msg;
+                button.innerText = "🔊 Testen";
+                isPlaying = false;
+            }
         });
 
         document.getElementById("alarm-form").addEventListener("submit", async (e) => {

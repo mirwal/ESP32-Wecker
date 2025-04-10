@@ -15,6 +15,8 @@ public:
     void saveToPreferences();
     void loadFromPreferences();
     bool shouldTriggerAlarm();
+    uint8_t getSavedVolume();
+    void setSavedVolume(uint8_t volume);
     uint8_t getSavedSound();
     void setSavedSound(uint8_t sound);
 

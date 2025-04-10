@@ -90,9 +90,27 @@ uint8_t Wecker::getSavedSound()
 }
 
 void Wecker::setSavedSound(uint8_t sound)
-{ 
+{
     Preferences prefs;
     prefs.begin("alarm", false);
     prefs.putUInt("sound", sound);
+    prefs.end();
+}
+// Lautstärke
+
+uint8_t Wecker::getSavedVolume()
+{
+    Preferences prefs;
+    prefs.begin("alarm", true);
+    uint8_t volume = prefs.getUInt("volume", 1);
+    prefs.end();
+    return volume;
+}
+
+void Wecker::setSavedVolume(uint8_t volume)
+{
+    Preferences prefs;
+    prefs.begin("alarm", false);
+    prefs.putUInt("volume", volume);
     prefs.end();
 }
